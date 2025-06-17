@@ -1,197 +1,173 @@
-
-
 from enum import Enum
-import time
-import pytest
+from datetime import datetime
+import random
 
-
-class CapacidadExcedidaError(Exception): pass
-
-class PedidoInvalidoError(Exception): pass
-
-
-class EnumCanal(Enum):
-    INGRESO = 1
-    TELEFONO = 2
+# --- Enumeraciones y excepciones personalizadas ---
+class MedioEntrada(Enum):
+    FORMULARIO = 1
+    LLAMADA = 2
     FAX = 3
 
+class ErrorVehiculo(Exception): pass
+class ErrorCargaExcesiva(Exception): pass
+class ErrorEmpleadoOcupado(Exception): pass
 
-class Vehiculo:
-    def __init__(self, capacidad_maxima, tipo):
-        if capacidad_maxima <= 0:
-            raise ValueError("La capacidad debe ser positiva")
-        self.capacidad_maxima = capacidad_maxima
-        self.tipo = tipo
-        self.en_uso = False
-
-    def esta_disponible(self):
-        return not self.en_uso
-
-    def asignar(self):
-        if self.en_uso:
-            raise Exception("Vehículo ya en uso")
-        self.en_uso = True
-
-    def liberar(self):
-        self.en_uso = False
-
-class VehiculoMotorizado(Vehiculo): pass
-class VehiculoEcologico(Vehiculo): pass
-
-class Furgoneta(VehiculoMotorizado):
-    def __init__(self, capacidad): super().__init__(capacidad, "Furgoneta")
-class Camion(VehiculoMotorizado):
-    def __init__(self, capacidad): super().__init__(capacidad, "Camion")
-class Bicicleta(VehiculoEcologico):
-    def __init__(self, capacidad): super().__init__(capacidad, "Bicicleta")
-class BicicletaElectrica(VehiculoMotorizado, VehiculoEcologico):
-    def __init__(self, capacidad): Vehiculo.__init__(self, capacidad, "Bicicleta Electrica")
-
-# --- TRABAJADORES ---
-class Trabajador:
-    def __init__(self, nombre): self.nombre = nombre
-class Conductor(Trabajador): pass
-class Ayudante(Trabajador): pass
-
-# --- CLIENTES Y PAQUETES ---
-class Cliente:
-    def __init__(self, id, nombre, contacto):
-        self.id = id
+# --- Modelos principales ---
+class Usuario:
+    def __init__(self, dni, nombre, direccion):
+        self.dni = dni
         self.nombre = nombre
-        self.contacto = contacto
-        self.facturas = []
+        self.direccion = direccion
+        self.pedidos_previos = []
 
-    def agregar_factura(self, factura):
-        self.facturas.append(factura)
+    def resumen_mensual(self, mes):
+        total = 0
+        kms = 0
+        for pedido in self.pedidos_previos:
+            if pedido.fecha.month == mes:
+                total += pedido.coste_total
+                kms += pedido.destino.distancia
+        return f"Resumen {mes}: {total}€ y {kms}km"
 
-class Paquete:
-    def __init__(self, id, peso, destino):
-        if peso <= 0:
-            raise ValueError("Peso del paquete debe ser positivo")
-        self.id = id
+class CiudadDestino:
+    def __init__(self, nombre, distancia):
+        self.nombre = nombre
+        self.distancia = distancia
+
+class TipoEntrega:
+    def __init__(self, destino):
+        self.destino = destino
+
+class Domicilio(TipoEntrega):
+    def __init__(self, destino):
+        super().__init__(destino)
+        self.tipo = 1
+
+    def coste_extra(self): return 10
+
+class OficinaCentral(TipoEntrega):
+    def __init__(self, destino):
+        super().__init__(destino)
+        self.tipo = 2
+
+class Envio:
+    def __init__(self, id_envio, canal, destino, entrega, usuario):
+        self.id_envio = id_envio
+        self.canal = canal
+        self.destino = destino
+        self.entrega = entrega
+        self.usuario = usuario
+        self.fecha = datetime.now()
+        self.bultos = []
+        self.generar_bultos()
+        self.coste_total = self.calcular_coste()
+
+    def generar_bultos(self):
+        cantidad = random.randint(1, 5)
+        for i in range(cantidad):
+            peso = round(random.uniform(1, 15), 2)
+            self.bultos.append(Bulto(f"{self.id_envio}-{i}", peso, self.destino))
+
+    def calcular_coste(self):
+        peso_total = sum(p.peso for p in self.bultos)
+        tarifa = (self.destino.distancia * 0.03) + peso_total * 0.5
+        if isinstance(self.entrega, Domicilio):
+            tarifa += self.entrega.coste_extra()
+        return round(tarifa, 2)
+
+    def mostrar_detalle(self):
+        return f"Envio {self.id_envio}: {[f'{b.peso}kg a {b.destino.nombre}' for b in self.bultos]}"
+
+class Bulto:
+    def __init__(self, codigo, peso, destino):
+        self.codigo = codigo
         self.peso = peso
         self.destino = destino
 
-# --- PEDIDOS ---
-class Pedido:
-    def __init__(self, cliente, canal, recogida, numpedido, vehiculo):
-        self.cliente = cliente
-        self.canal = canal
-        self.recogida = recogida
-        self.numpedido = numpedido
-        self.vehiculo = vehiculo
+class Empleado:
+    def __init__(self, id_emp, nombre):
+        self.id = id_emp
+        self.nombre = nombre
+        self.ocupacion = {}
+
+    def esta_disponible(self, fecha):
+        return fecha not in self.ocupacion
+
+    def asignar_tarea(self, tarea):
+        fecha = tarea.fecha
+        if not self.esta_disponible(fecha):
+            raise ErrorEmpleadoOcupado("Empleado ya ocupado ese día")
+        self.ocupacion[fecha] = tarea
+
+class Transportista(Empleado):
+    def __init__(self, id_emp, nombre, vehiculo):
+        super().__init__(id_emp, nombre)
+        self.vehiculo_autorizado = vehiculo
+
+class Auxiliar(Empleado):
+    def redactar_informe(self, viaje, detalle):
+        viaje.informe = detalle
+
+class UnidadMovil:
+    def __init__(self, id_unidad, capacidad):
+        self.id_unidad = id_unidad
+        self.capacidad = capacidad
+        self.historial = []
+
+    def cargar_envios(self, envio):
+        carga = sum(p.peso for p in envio.bultos)
+        if carga > self.capacidad:
+            raise ErrorCargaExcesiva("Carga excede capacidad")
+        self.historial.append(envio)
+
+class RutaServicio:
+    def __init__(self, id_ruta, fecha):
+        self.id = id_ruta
+        self.fecha = fecha
         self.paquetes = []
+        self.equipo = []
+        self.informe = None
 
     def agregar_paquete(self, paquete):
-        if self.peso_total() + paquete.peso > self.vehiculo.capacidad_maxima:
-            raise CapacidadExcedidaError("Capacidad del vehiculo superada")
         self.paquetes.append(paquete)
 
-    def peso_total(self):
-        return sum(p.peso for p in self.paquetes)
+# --- Simulación de operación logística ---
+def main():
+    cliente = Usuario("11223344Z", "Ana López", "Gran Vía 10")
+    destino = CiudadDestino("Sevilla", 120)
+    entrega = Domicilio(destino)
 
-# --- VIAJE Y PARTE ---
-class ParteViaje:
-    def __init__(self, viaje): self.viaje = viaje
+    envio = Envio(1, MedioEntrada.LLAMADA, destino, entrega, cliente)
+    cliente.pedidos_previos.append(envio)
 
-    def generar(self):
-        print(f"--- PARTE DE VIAJE ---\nVehiculo: {self.viaje.vehiculo.tipo}\nConductores: {self.viaje.conductor.nombre}" +
-              (f" y {self.viaje.ayudante.nombre}" if self.viaje.ayudante else "") +
-              f"\nPedidos: {len(self.viaje.pedidos)}\nDistancia: {self.viaje.distancia}km\nDuracion: {self.viaje.duracion}s\n---")
+    ruta = RutaServicio("RUTA01", datetime.now().date())
+    for p in envio.bultos:
+        ruta.agregar_paquete(p)
 
-class Viaje:
-    def __init__(self, pedidos, distancia, duracion, conductor, ayudante=None):
-        self.pedidos = pedidos
-        self.distancia = distancia
-        self.duracion = duracion
-        self.conductor = conductor
-        self.ayudante = ayudante
-        self.vehiculo = pedidos[0].vehiculo
-        self.parte = ParteViaje(self)
-        self.vehiculo.asignar()
+    vehiculo = UnidadMovil("ABC123", 500)
+    try:
+        vehiculo.cargar_envios(envio)
+    except ErrorCargaExcesiva as error:
+        print("Error en carga del vehículo:", error)
 
-    def iniciar(self):
-        print(f"Iniciando viaje con {self.vehiculo.tipo}...")
-        time.sleep(self.duracion)
-        self.finalizar()
+    conductor = Transportista("EMP001", "José García", "Furgoneta")
+    asistente = Auxiliar("EMP002", "María Ruiz")
 
-    def finalizar(self):
-        self.vehiculo.liberar()
-        self.parte.generar()
+    try:
+        conductor.asignar_tarea(ruta)
+        asistente.asignar_tarea(ruta)
+        ruta.equipo.append(conductor)
+        ruta.equipo.append(asistente)
+    except ErrorEmpleadoOcupado as error:
+        print("Error al asignar personal:", error)
 
-# --- FACTURACION ---
-class Factura:
-    def __init__(self, cliente, total):
-        self.cliente = cliente
-        self.total = total
-        self.pagada = False
+    asistente.redactar_informe(ruta, "Entrega retrasada por tráfico.")
 
-    def pagar(self):
-        self.pagada = True
-        print(f"Factura de {self.total}€ pagada por {self.cliente.nombre}.")
+    print(envio.mostrar_detalle())
+    print(f"Vehículo asignado: {vehiculo.id_unidad}")
+    print(f"ID Conductor: {conductor.id}, ID Ayudante: {asistente.id}")
+    print("Informe del viaje:", ruta.informe)
+    print(cliente.resumen_mensual(datetime.now().month))
 
-# --- SISTEMA DE LOGISTICA ---
-class SistemaLogistica:
-    def __init__(self):
-        self.clientes = {}
-        self.vehiculos = []
-        self.trabajadores = []
-        self.pedidos = []
-        self.viajes = []
-        self.facturas = []
-
-    def registrar_cliente(self, id, nombre, contacto):
-        c = Cliente(id, nombre, contacto)
-        self.clientes[id] = c
-        return c
-
-    def registrar_vehiculo(self, tipo, capacidad):
-        tipos = {
-            "Furgoneta": Furgoneta,
-            "Camion": Camion,
-            "Bicicleta": Bicicleta,
-            "BicicletaElectrica": BicicletaElectrica
-        }
-        v = tipos[tipo](capacidad)
-        self.vehiculos.append(v)
-        return v
-
-    def registrar_trabajador(self, tipo, nombre):
-        t = Conductor(nombre) if tipo == "Conductor" else Ayudante(nombre)
-        self.trabajadores.append(t)
-        return t
-
-    def crear_pedido(self, cliente_id, canal, recogida, numpedido, vehiculo, paquetes):
-        cliente = self.clientes[cliente_id]
-        pedido = Pedido(cliente, canal, recogida, numpedido, vehiculo)
-        for p in paquetes:
-            pedido.agregar_paquete(p)
-        self.pedidos.append(pedido)
-        return pedido
-
-    def planificar_viaje(self, pedidos, distancia, duracion, conductor, ayudante=None):
-        viaje = Viaje(pedidos, distancia, duracion, conductor, ayudante)
-        self.viajes.append(viaje)
-        viaje.iniciar()
-
-    def generar_factura(self, cliente_id, total):
-        cliente = self.clientes[cliente_id]
-        factura = Factura(cliente, total)
-        cliente.agregar_factura(factura)
-        self.facturas.append(factura)
-        factura.pagar()
-
-# --- EJEMPLO DE USO ---
 if __name__ == "__main__":
-    sistema = SistemaLogistica()
-
-    cliente1 = sistema.registrar_cliente(1, "Caridad", "caridad@gmail.com")
-    conductor = sistema.registrar_trabajador("Conductor", "Barbara")
-    ayudante = sistema.registrar_trabajador("Ayudante", "Ana")
-    furgoneta = sistema.registrar_vehiculo("Furgoneta", 1000)
-
-    paquetes = [Paquete(1, 300, "Murcia"), Paquete(2, 400, "Yecla")]
-    pedido = sistema.crear_pedido(1, EnumCanal.TELEFONO, True, 101, furgoneta, paquetes)
-
-    sistema.planificar_viaje([pedido], 60, 2, conductor, ayudante)
-    sistema.generar_factura(1, 80)
+    main()
